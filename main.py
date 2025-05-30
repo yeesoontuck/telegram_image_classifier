@@ -69,8 +69,15 @@ async def main():
 
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_image))
 
-    # Set Telegram webhook to your Render HTTPS URL
-    await app.bot.set_webhook(WEBHOOK_URL)
+    # Clear any previous webhook
+    await app.bot.delete_webhook(drop_pending_updates=True)
+
+    # Set Telegram webhook to your Render URL
+    success = await app.bot.set_webhook(WEBHOOK_URL)
+    if success:
+        logging.info(f"Webhook set to {WEBHOOK_URL}")
+    else:
+        logging.warning("Failed to set webhook!")
 
     # Start webhook server (Render forwards HTTP requests)
     await app.run_webhook(
