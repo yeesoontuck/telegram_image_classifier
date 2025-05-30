@@ -1,4 +1,5 @@
 import logging
+import os
 from io import BytesIO
 from PIL import Image
 import torch
@@ -11,22 +12,22 @@ from telegram.ext import (
     filters,
     AIORateLimiter
 )
-import os
-
-# === ENV VARS ===
-BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-WEBHOOK_DOMAIN = os.environ["RENDER_EXTERNAL_URL"]
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = f"{WEBHOOK_DOMAIN}{WEBHOOK_PATH}"
+from aiohttp import web
 
 # === Logging ===
 logging.basicConfig(level=logging.INFO)
 
-# === Load model once ===
+# === Environment Variables ===
+BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+RENDER_EXTERNAL_URL = os.environ["RENDER_EXTERNAL_URL"]
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{RENDER_EXTERNAL_URL.rstrip('/')}{WEBHOOK_PATH}"
+
+# === Load Model and Feature Extractor ===
 feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
 model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224")
 
-# === Image handler ===
+# === Telegram Message Handler ===
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = None
 
@@ -58,8 +59,13 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Please send a photo or image file.")
 
-# === Main app with webhook ===
+# === Optional Healthcheck Route ===
+async def healthcheck(request):
+    return web.Response(text="OK")
+
+# === Main Function ===
 async def main():
+    # Create Telegram Application
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
@@ -67,24 +73,28 @@ async def main():
         .build()
     )
 
+    # Add handler for photo or image document
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_image))
 
-    # Clear any previous webhook
+    # Delete any old webhook and set new one (required for Render Free Tier)
     await app.bot.delete_webhook(drop_pending_updates=True)
-
-    # Set Telegram webhook to your Render URL
     success = await app.bot.set_webhook(WEBHOOK_URL)
-    if success:
-        logging.info(f"Webhook set to {WEBHOOK_URL}")
-    else:
-        logging.warning("Failed to set webhook!")
 
-    # Start webhook server (Render forwards HTTP requests)
+    if success:
+        logging.info(f"✅ Webhook set to: {WEBHOOK_URL}")
+    else:
+        logging.warning("❌ Failed to set webhook!")
+
+    # Define aiohttp app for optional healthcheck
+    aio_app = web.Application()
+    aio_app.router.add_get("/", healthcheck)
+
+    # Run the webhook server
     await app.run_webhook(
         listen="0.0.0.0",
         port=10000,
         webhook_path=WEBHOOK_PATH,
-        use_app=True  # use aiohttp
+        use_app=aio_app
     )
 
 if __name__ == "__main__":
