@@ -2,3 +2,4 @@ python-telegram-bot==20.7
 transformers==4.40.1
 torch
 Pillow
+aiohttp
